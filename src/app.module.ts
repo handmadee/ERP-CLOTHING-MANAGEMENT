@@ -4,35 +4,42 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import configuration from './config/configuration';
+import { loadConfig } from './config/configuration.loader';
+import { Config } from './config/interfaces/config.interface';
+import { MongooseConfigService } from './config/database/mongoose.config';
 
 @Module({
   imports: [
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [configuration],
+      load: [loadConfig()],
     }),
-    
+
     // Database
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>('database.uri'),
-        dbName: configService.get<string>('database.name'),
-      }),
-      inject: [ConfigService],
+      useClass: MongooseConfigService,
     }),
 
     // Rate limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService): Promise<ThrottlerModuleOptions> => ({
-        throttlers: [{
-          ttl: configService.get<number>('throttle.ttl') || 60,
-          limit: configService.get<number>('throttle.limit') || 100,
-        }],
-      }),
+      useFactory: async (
+        configService: ConfigService<Config>,
+      ): Promise<ThrottlerModuleOptions> => {
+        const ttl = configService.get('throttle.ttl', { infer: true });
+        const limit = configService.get('throttle.limit', { infer: true });
+        
+        return {
+          throttlers: [
+            {
+              ttl: ttl ?? 60,
+              limit: limit ?? 100,
+            },
+          ],
+        };
+      },
       inject: [ConfigService],
     }),
   ],
@@ -42,6 +49,8 @@ import configuration from './config/configuration';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    MongooseConfigService,
   ],
+  exports: [MongooseConfigService],
 })
 export class AppModule {}

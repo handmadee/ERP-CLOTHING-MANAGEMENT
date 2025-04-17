@@ -19,7 +19,7 @@ export class TransformInterceptor<T>
     const request = context.switchToHttp().getRequest();
 
     return next.handle().pipe(
-      map(data => {
+      map((data) => {
         // If the response is already in BaseResponse format, return it as is
         if (data?.success !== undefined) {
           return data;
@@ -38,4 +38,4 @@ export class TransformInterceptor<T>
       }),
     );
   }
-} 
+}
