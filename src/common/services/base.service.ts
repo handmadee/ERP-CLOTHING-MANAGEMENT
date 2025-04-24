@@ -15,7 +15,9 @@ export class BaseService<T extends BaseEntity> {
   }
 
   async findOne(filter: FilterQuery<T>): Promise<T> {
-    const document = await this.model.findOne({ ...filter, isActive: true }).exec();
+    const document = await this.model
+      .findOne({ ...filter, isActive: true })
+      .exec();
     if (!document) {
       throw new NotFoundException('Document not found');
     }
@@ -27,10 +29,10 @@ export class BaseService<T extends BaseEntity> {
       .findOneAndUpdate(
         { ...filter, isActive: true },
         { $set: { ...updateDto, updatedAt: new Date() } },
-        { new: true }
+        { new: true },
       )
       .exec();
-    
+
     if (!document) {
       throw new NotFoundException('Document not found');
     }
@@ -46,12 +48,12 @@ export class BaseService<T extends BaseEntity> {
             isActive: false,
             deletedAt: new Date(),
             deletedBy,
-          }
+          },
         },
-        { new: true }
+        { new: true },
       )
       .exec();
-    
+
     if (!document) {
       throw new NotFoundException('Document not found');
     }
@@ -62,4 +64,4 @@ export class BaseService<T extends BaseEntity> {
     const result = await this.model.deleteOne(filter).exec();
     return result.deletedCount > 0;
   }
-} 
+}

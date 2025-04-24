@@ -7,9 +7,18 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { loadConfig } from './config/configuration.loader';
 import { Config } from './config/interfaces/config.interface';
 import { MongooseConfigService } from './config/database/mongoose.config';
+import { ImagesModule } from './modules/images/images.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { CostumesModule } from './modules/costumes/costumes.module';
+import { LoggerModule } from './common/modules/logger.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
+    LoggerModule,
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -19,18 +28,22 @@ import { MongooseConfigService } from './config/database/mongoose.config';
     // Database
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
-      useClass: MongooseConfigService,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        uri: process.env.MONGODB_URI,
+      }),
     }),
 
     // Rate limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (
+      inject: [ConfigService],
+      useFactory: (
         configService: ConfigService<Config>,
-      ): Promise<ThrottlerModuleOptions> => {
+      ): ThrottlerModuleOptions => {
         const ttl = configService.get('throttle.ttl', { infer: true });
         const limit = configService.get('throttle.limit', { infer: true });
-        
+
         return {
           throttlers: [
             {
@@ -40,8 +53,20 @@ import { MongooseConfigService } from './config/database/mongoose.config';
           ],
         };
       },
-      inject: [ConfigService],
     }),
+
+    AuthModule,
+
+    ImagesModule,
+
+    SettingsModule,
+
+    CategoriesModule,
+
+    CostumesModule,
+    CustomersModule,
+
+    OrdersModule
   ],
   controllers: [],
   providers: [
@@ -53,4 +78,4 @@ import { MongooseConfigService } from './config/database/mongoose.config';
   ],
   exports: [MongooseConfigService],
 })
-export class AppModule {}
+export class AppModule { }

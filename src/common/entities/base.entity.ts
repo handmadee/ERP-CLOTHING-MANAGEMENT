@@ -30,4 +30,4 @@ export class BaseEntity {
   @ApiProperty({ description: 'Is the record active' })
   @Prop({ default: true })
   isActive: boolean;
-} 
+}

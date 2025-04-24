@@ -8,4 +8,4 @@ export interface BaseResponse<T> {
     path: string;
     [key: string]: any;
   };
-} 
+}

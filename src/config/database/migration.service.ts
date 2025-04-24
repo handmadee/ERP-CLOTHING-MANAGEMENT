@@ -17,7 +17,9 @@ export class MigrationService implements OnModuleInit {
     if (!config?.migrations?.enabled) {
       return;
     }
-    this.migrationConfig = config.migrations as Required<DatabaseConfig['migrations']>;
+    this.migrationConfig = config.migrations as Required<
+      DatabaseConfig['migrations']
+    >;
   }
 
   async onModuleInit(): Promise<void> {
@@ -29,14 +31,16 @@ export class MigrationService implements OnModuleInit {
   private async runMigrations(): Promise<void> {
     try {
       const migrationsCollection = this.connection.collection('migrations');
-      
+
       // Get all applied migrations
       const appliedMigrations = await migrationsCollection
         .find({})
         .sort({ timestamp: -1 })
         .toArray();
 
-      const appliedMigrationNames = new Set(appliedMigrations.map(m => m.name));
+      const appliedMigrationNames = new Set(
+        appliedMigrations.map((m) => m.name),
+      );
 
       // Get all migration files from the migrations directory
       const migrations = await this.loadMigrationFiles();
@@ -45,19 +49,22 @@ export class MigrationService implements OnModuleInit {
       for (const migration of migrations) {
         if (!appliedMigrationNames.has(migration.name)) {
           this.logger.log(`Running migration: ${migration.name}`);
-          
+
           const session = await this.connection.startSession();
-          
+
           try {
             session.startTransaction();
-            
+
             await migration.up(this.connection, session);
-            
-            await migrationsCollection.insertOne({
-              name: migration.name,
-              timestamp: new Date(),
-            }, { session });
-            
+
+            await migrationsCollection.insertOne(
+              {
+                name: migration.name,
+                timestamp: new Date(),
+              },
+              { session },
+            );
+
             await session.commitTransaction();
             this.logger.log(`Migration completed: ${migration.name}`);
           } catch (error) {
@@ -75,10 +82,12 @@ export class MigrationService implements OnModuleInit {
     }
   }
 
-  private async loadMigrationFiles(): Promise<Array<{
-    name: string;
-    up: (connection: Connection, session?: any) => Promise<void>;
-  }>> {
+  private async loadMigrationFiles(): Promise<
+    Array<{
+      name: string;
+      up: (connection: Connection, session?: any) => Promise<void>;
+    }>
+  > {
     // This is a placeholder. In a real application, you would:
     // 1. Scan the migrations directory
     // 2. Load and validate each migration file
@@ -90,7 +99,7 @@ export class MigrationService implements OnModuleInit {
   async revertLastMigration(): Promise<void> {
     try {
       const migrationsCollection = this.connection.collection('migrations');
-      
+
       // Get the last applied migration
       const lastMigration = await migrationsCollection
         .find({})
@@ -104,7 +113,7 @@ export class MigrationService implements OnModuleInit {
       }
 
       const session = await this.connection.startSession();
-      
+
       try {
         session.startTransaction();
 
@@ -112,10 +121,10 @@ export class MigrationService implements OnModuleInit {
         // This is a placeholder. In a real application, you would:
         // 1. Load the migration file
         // 2. Execute its down function
-        
+
         await migrationsCollection.deleteOne(
           { name: lastMigration[0].name },
-          { session }
+          { session },
         );
 
         await session.commitTransaction();
@@ -132,4 +141,4 @@ export class MigrationService implements OnModuleInit {
       throw error;
     }
   }
-} 
+}

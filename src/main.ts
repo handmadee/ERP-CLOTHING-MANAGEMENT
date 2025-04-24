@@ -9,6 +9,8 @@ import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { CustomLogger } from './common/services/logger.service';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   // Winston logger configuration
@@ -64,7 +66,14 @@ async function bootstrap() {
     }),
   );
   app.useGlobalInterceptors(new TransformInterceptor());
-  app.useGlobalFilters(new HttpExceptionFilter());
+
+  // Use custom logger
+  const customLogger = await app.resolve(CustomLogger);
+  app.useLogger(customLogger);
+
+
+  app.useGlobalFilters(new HttpExceptionFilter(customLogger));
+  app.useGlobalInterceptors(new LoggingInterceptor(customLogger));
 
   // Swagger documentation setup
   const config = new DocumentBuilder()
@@ -75,7 +84,6 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
-  // Start the application
   const port = process.env.PORT || 3000;
   await app.listen(port);
   Logger.log(`🚀 Application is running on: http://localhost:${port}`);

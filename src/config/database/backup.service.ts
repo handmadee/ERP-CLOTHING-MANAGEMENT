@@ -8,7 +8,7 @@ import * as path from 'path';
 import { DatabaseConfig } from '../interfaces/database.interface';
 
 const execAsync = promisify(exec);
-const BACKUP_SCHEDULE = '0 0 * * *'; 
+const BACKUP_SCHEDULE = '0 0 * * *';
 
 interface BackupConfig {
   enabled: boolean;

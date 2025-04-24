@@ -6,35 +6,27 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { BaseResponse } from '../interfaces/base-response.interface';
+import { ApiResponse } from '../dto/api-response.dto';
 
 @Injectable()
 export class TransformInterceptor<T>
-  implements NestInterceptor<T, BaseResponse<T>>
+  implements NestInterceptor<T, ApiResponse<T>>
 {
   intercept(
     context: ExecutionContext,
     next: CallHandler,
-  ): Observable<BaseResponse<T>> {
+  ): Observable<ApiResponse<T>> {
     const request = context.switchToHttp().getRequest();
 
     return next.handle().pipe(
       map((data) => {
-        // If the response is already in BaseResponse format, return it as is
-        if (data?.success !== undefined) {
+        // If the response is already an ApiResponse, return it as is
+        if (data instanceof ApiResponse) {
           return data;
         }
 
-        // Otherwise, transform it to BaseResponse format
-        return {
-          success: true,
-          message: 'Success',
-          data,
-          metadata: {
-            timestamp: new Date(),
-            path: request.url,
-          },
-        };
+        // Otherwise, wrap it in an ApiResponse
+        return ApiResponse.success(data, request.url);
       }),
     );
   }

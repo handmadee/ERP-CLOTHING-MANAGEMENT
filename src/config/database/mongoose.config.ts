@@ -48,14 +48,17 @@ export class MongooseConfigService implements MongooseOptionsFactory {
 
   createMongooseOptions(): MongooseModuleOptions {
     const options = this.getMongooseOptions();
-      console.log(
-        '🚀 ~ MongooseConfigService ~ createMongooseOptions ~ connection:',
-        options,
-      );
+    console.log(
+      '🚀 ~ MongooseConfigService ~ createMongooseOptions ~ connection:',
+      options,
+    );
     return {
       ...options,
       connectionFactory: (connection: Connection) => {
-        console.log("🚀 ~ MongooseConfigService ~ createMongooseOptions ~ connection:", connection)
+        console.log(
+          '🚀 ~ MongooseConfigService ~ createMongooseOptions ~ connection:',
+          connection,
+        );
         connection.on('connected', () => {
           console.log('MongoDB is connected');
           this.logConnectionInfo(connection);
@@ -109,12 +112,14 @@ export class MongooseConfigService implements MongooseOptionsFactory {
     }
 
     // Add read preference
-    const readPrefMode = (primary.readPreference || 'primary') as ReadPreferenceMode;
+    const readPrefMode = (primary.readPreference ||
+      'primary') as ReadPreferenceMode;
 
     commonOptions.readPreference = new ReadPreference(readPrefMode);
 
     // Add read concern
-    const readConcernLevel = (primary.readConcern?.level || 'majority') as ReadConcernLevel;
+    const readConcernLevel = (primary.readConcern?.level ||
+      'majority') as ReadConcernLevel;
 
     commonOptions.readConcern = new ReadConcern(readConcernLevel);
 
@@ -141,7 +146,8 @@ export class MongooseConfigService implements MongooseOptionsFactory {
 
   private enableQueryExplaining(connection: Connection): void {
     // Safe type assertion since we know the internal structure
-    const Collection = connection.collection('').constructor as unknown as MongoCollection;
+    const Collection = connection.collection('')
+      .constructor as unknown as MongoCollection;
 
     if (!Collection?.prototype?.find) {
       return;
