@@ -21,7 +21,7 @@ export class TimelineEntry {
     @ApiProperty({ description: 'Optional note about the status change', required: false })
     @Prop()
     note?: string;
-    
+
 }
 
 @Schema({ _id: false })
@@ -55,7 +55,6 @@ export class Order {
     @ApiProperty({ description: 'Reference to the customer', type: String })
     @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Customer', required: true })
     customerId: Customer;
-
 
     @ApiProperty({ description: 'Reference to the account', type: String })
     @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Account', required: true })
@@ -103,6 +102,12 @@ export class Order {
 
     @ApiProperty({ description: 'Whether the order is overdue', type: Boolean })
     isOverdue?: boolean;
+
+    @ApiProperty({ description: 'Creation timestamp' })
+    createdAt?: Date;
+
+    @ApiProperty({ description: 'Last update timestamp' })
+    updatedAt?: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

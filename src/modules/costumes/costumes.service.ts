@@ -26,35 +26,51 @@ export class CostumesService {
             }
             return result;
         };
-        let code = generateCode();
-        let existingCostume = await this.costumeModel.findOne({ code }).exec();
-        while (existingCostume) {
-            code = generateCode();
-            existingCostume = await this.costumeModel.findOne({ code }).exec();
+        for (let i = 0; i < 10; i++) {
+            const code = generateCode();
+            const existingCostume = await this.costumeModel.findOne({ code } as any).exec();
+            if (!existingCostume) {
+                return code;
+            }
         }
-        return code;
+
+        // If we couldn't generate a unique code after 10 tries, use timestamp
+        const timestamp = Date.now().toString(36).toUpperCase();
+        return `SP${timestamp.slice(-6)}`;
     }
 
-    async create(createCostumeDto: CreateCostumeDto): Promise<Costume> {
-        console.log("🚀 ~ CostumesService ~ create ~ createCostumeDto:", createCostumeDto)
+    async create(createCostumeDto: CreateCostumeDto): Promise<CostumeDocument> {
         this.logger.log(`Creating new costume: ${createCostumeDto.name}`);
+
+        // Generate code if not provided
         if (!createCostumeDto.code) {
             createCostumeDto.code = await this.generateUniqueCode();
             this.logger.log(`Generated unique code: ${createCostumeDto.code}`);
         } else {
-            const existingCostume = await this.costumeModel.findOne({ code: createCostumeDto.code }).exec();
+            // Validate format if code is provided
+            if (!/^SP[A-Z0-9]{6}$/.test(createCostumeDto.code)) {
+                throw new BadRequestException(
+                    'Mã sản phẩm phải bắt đầu bằng "SP" và theo sau là 6 ký tự chữ hoa hoặc số'
+                );
+            }
+            // Check for duplicates
+            const existingCostume = await this.costumeModel.findOne({ code: createCostumeDto.code } as any).exec();
             if (existingCostume) {
                 this.logger.warn(`Attempted to create costume with existing code: ${createCostumeDto.code}`);
-                throw new ConflictException(`Costume with code ${createCostumeDto.code} already exists`);
+                throw new ConflictException(`Mã sản phẩm ${createCostumeDto.code} đã tồn tại`);
             }
         }
+
+        // Validate category
         await this.categoriesService.findOne(createCostumeDto.categoryId);
 
         try {
-            const createdCostume = new this.costumeModel(createCostumeDto);
-            const savedCostume = await createdCostume.save();
-            this.logger.log(`Created costume with ID: ${savedCostume._id}`);
-            return savedCostume;
+            const createdCostume = new this.costumeModel({
+                ...createCostumeDto,
+                status: createCostumeDto.status || 'available',
+                quantityAvailable: createCostumeDto.quantityAvailable || 1,
+            });
+            return await createdCostume.save();
         } catch (error) {
             this.logger.error(`Failed to create costume: ${error.message}`, error.stack);
             throw error;
@@ -134,25 +150,202 @@ export class CostumesService {
         };
     }
 
-    async findOne(id: string): Promise<Costume> {
+    async findOne(id: string): Promise<any> {
         let costume;
         try {
-            costume = await this.costumeModel.findById(id).populate('categoryId').exec();
+            costume = await this.costumeModel
+                .findById(id)
+                .populate('categoryId', 'name description')
+                .exec();
+
+            if (!costume) {
+                this.logger.warn(`Costume with ID ${id} not found`);
+                throw new NotFoundException(`Costume with ID ${id} not found`);
+            }
+
+            // Get rental history for this costume
+            const rentalHistory = await this.costumeModel.aggregate([
+                { $match: { _id: costume._id } },
+                {
+                    $lookup: {
+                        from: 'orders',
+                        localField: '_id',
+                        foreignField: 'items.costumeId',
+                        as: 'orderHistory'
+                    }
+                },
+                { $unwind: '$orderHistory' },
+                { $sort: { 'orderHistory.orderDate': -1 } },
+                { $limit: 5 }
+            ]);
+
+            // Calculate revenue metrics
+            const revenueMetrics = await this.costumeModel.aggregate([
+                { $match: { _id: costume._id } },
+                {
+                    $lookup: {
+                        from: 'orders',
+                        localField: '_id',
+                        foreignField: 'items.costumeId',
+                        as: 'orders'
+                    }
+                },
+                { $unwind: '$orders' },
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: {
+                            $sum: {
+                                $reduce: {
+                                    input: '$orders.items',
+                                    initialValue: 0,
+                                    in: {
+                                        $add: [
+                                            '$$value',
+                                            {
+                                                $cond: [
+                                                    { $eq: ['$$this.costumeId', costume._id] },
+                                                    { $multiply: ['$$this.price', '$$this.quantity'] },
+                                                    0
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        totalRentals: {
+                            $sum: {
+                                $cond: [
+                                    { $eq: ['$orders.status', 'completed'] },
+                                    1,
+                                    0
+                                ]
+                            }
+                        },
+                        activeRentals: {
+                            $sum: {
+                                $cond: [
+                                    { $eq: ['$orders.status', 'active'] },
+                                    1,
+                                    0
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]);
+
+            // Get current active rentals
+            const activeRentals = await this.costumeModel.aggregate([
+                { $match: { _id: costume._id } },
+                {
+                    $lookup: {
+                        from: 'orders',
+                        localField: '_id',
+                        foreignField: 'items.costumeId',
+                        as: 'activeOrders'
+                    }
+                },
+                { $unwind: '$activeOrders' },
+                { $match: { 'activeOrders.status': 'active' } },
+                {
+                    $project: {
+                        orderCode: '$activeOrders.orderCode',
+                        customerName: '$activeOrders.customerName',
+                        returnDate: '$activeOrders.returnDate',
+                        quantity: {
+                            $reduce: {
+                                input: '$activeOrders.items',
+                                initialValue: 0,
+                                in: {
+                                    $add: [
+                                        '$$value',
+                                        {
+                                            $cond: [
+                                                { $eq: ['$$this.costumeId', costume._id] },
+                                                '$$this.quantity',
+                                                0
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ]);
+
+            // Calculate maintenance and status metrics
+            const maintenanceStatus = costume.status === 'maintenance' ? {
+                status: 'Đang bảo trì',
+                lastMaintenance: costume.lastMaintenanceDate || 'Chưa có thông tin',
+                nextMaintenance: costume.nextMaintenanceDate || 'Chưa lên lịch'
+            } : {
+                status: 'Đang hoạt động',
+                lastMaintenance: costume.lastMaintenanceDate || 'Chưa có thông tin',
+                nextMaintenance: costume.nextMaintenanceDate || 'Chưa lên lịch'
+            };
+
+            // Calculate current availability
+            const currentlyRentedQuantity = activeRentals.reduce((sum, rental) => sum + rental.quantity, 0);
+            const actualAvailableQuantity = costume.quantityAvailable - currentlyRentedQuantity;
+
+            // Prepare the enhanced response
+            const enhancedCostume = {
+                basicInfo: {
+                    ...costume.toObject(),
+                    category: costume.categoryId,
+                    status: costume.status === 'available' ? 'Có sẵn' : 'Đang bảo trì'
+                },
+                inventoryMetrics: {
+                    totalQuantity: costume.quantityAvailable,
+                    currentlyAvailable: actualAvailableQuantity,
+                    currentlyRented: currentlyRentedQuantity,
+                    utilizationRate: `${((currentlyRentedQuantity / costume.quantityAvailable) * 100).toFixed(2)}%`,
+                    restockNeeded: actualAvailableQuantity < (costume.quantityAvailable * 0.2),
+                    recommendedRestock: actualAvailableQuantity < (costume.quantityAvailable * 0.2) ?
+                        Math.ceil(costume.quantityAvailable * 0.5) : 0
+                },
+                financialMetrics: {
+                    currentPrice: costume.price,
+                    totalRevenue: revenueMetrics[0]?.totalRevenue || 0,
+                    averageRevenuePerRental: revenueMetrics[0]?.totalRevenue && revenueMetrics[0]?.totalRentals ?
+                        (revenueMetrics[0].totalRevenue / revenueMetrics[0].totalRentals).toFixed(2) : 0,
+                    profitabilityScore: 'Cao'
+                },
+                rentalMetrics: {
+                    totalRentals: revenueMetrics[0]?.totalRentals || 0,
+                    activeRentals: revenueMetrics[0]?.activeRentals || 0,
+                    currentUtilization: `${((currentlyRentedQuantity / costume.quantityAvailable) * 100).toFixed(2)}%`,
+                    popularityScore: revenueMetrics[0]?.totalRentals > 50 ? 'Cao' :
+                        revenueMetrics[0]?.totalRentals > 20 ? 'Trung bình' : 'Thấp'
+                },
+                maintenanceInfo: maintenanceStatus,
+                currentRentals: activeRentals,
+                recentHistory: rentalHistory.map((record: any) => ({
+                    orderCode: record.orderHistory.orderCode,
+                    orderDate: record.orderHistory.orderDate,
+                    returnDate: record.orderHistory.returnDate,
+                    status: record.orderHistory.status
+                })),
+                metadata: {
+                    createdAt: costume.createdAt,
+                    lastUpdated: costume.updatedAt,
+                    lastStatusChange: costume.lastStatusChange || costume.createdAt
+                }
+            };
+
+            return enhancedCostume;
+
         } catch (error) {
             this.logger.error(`Error finding costume: ${error.message}`);
             throw new NotFoundException(`Costume with ID ${id} not found`);
         }
-
-        if (!costume) {
-            this.logger.warn(`Costume with ID ${id} not found`);
-            throw new NotFoundException(`Costume with ID ${id} not found`);
-        }
-
-        return costume;
     }
 
-    async findByCode(code: string): Promise<Costume> {
-        const costume = await this.costumeModel.findOne({ code }).populate('categoryId').exec();
+    async findByCode(code: string): Promise<CostumeDocument> {
+        const costume = await this.costumeModel.findOne({ code } as any).populate('categoryId').exec();
 
         if (!costume) {
             this.logger.warn(`Costume with code ${code} not found`);
@@ -162,28 +355,15 @@ export class CostumesService {
         return costume;
     }
 
-    async update(id: string, updateCostumeDto: UpdateCostumeDto): Promise<Costume> {
-        console.log("🚀 ~ CostumesService ~ update ~ updateCostumeDto:", updateCostumeDto)
-        this.logger.log(`Updating costume with ID: ${id}`);
+    async update(id: string, updateCostumeDto: UpdateCostumeDto): Promise<CostumeDocument> {
         const costume = await this.findOne(id);
-        if (updateCostumeDto.code && updateCostumeDto.code !== costume.code) {
-            const existingWithCode = await this.costumeModel.findOne({ code: updateCostumeDto.code }).exec();
-            if (existingWithCode) {
-                this.logger.warn(`Attempted to update costume with existing code: ${updateCostumeDto.code}`);
-                throw new ConflictException(`Costume with code ${updateCostumeDto.code} already exists`);
-            }
-        }
         if (updateCostumeDto.categoryId) {
             await this.categoriesService.findOne(updateCostumeDto.categoryId);
         }
-        if (updateCostumeDto.quantityAvailable !== undefined &&
-            costume.quantityRented > 0 &&
-            updateCostumeDto.quantityAvailable + costume.quantityRented < costume.quantityAvailable + costume.quantityRented) {
-            throw new BadRequestException('Cannot decrease total quantity below number of rented items');
-        }
+
         try {
             const updatedCostume = await this.costumeModel
-                .findByIdAndUpdate(id, updateCostumeDto, { new: true })
+                .findByIdAndUpdate(id, updateCostumeDto as any, { new: true })
                 .populate('categoryId')
                 .exec();
 
@@ -243,15 +423,16 @@ export class CostumesService {
             newStatus = 'available';
         }
 
-        return this.costumeModel.findByIdAndUpdate(
+        const updatedCostume = await this.costumeModel.findByIdAndUpdate(
             id,
             {
                 quantityAvailable: newAvailable,
                 quantityRented: newRented,
                 status: newStatus
-            },
+            } as any,
             { new: true }
         ).exec();
+        return updatedCostume;
     }
 
     // Reporting and analytics methods
@@ -300,5 +481,11 @@ export class CostumesService {
                 }
             }
         ]).exec();
+    }
+
+    async findByIds(ids: string[]): Promise<CostumeDocument[]> {
+        return this.costumeModel.find({
+            _id: { $in: ids.map(id => new Types.ObjectId(id)) }
+        } as any).exec();
     }
 } 

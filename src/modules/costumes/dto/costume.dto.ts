@@ -1,11 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUrl, Min } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUrl, Matches, Min } from 'class-validator';
 import { CostumeStatus } from '../models/costume.model';
 
 export class CreateCostumeDto {
-    @ApiProperty({ description: 'Mã sản phẩm, sẽ tự động tạo nếu không cung cấp', required: false })
+    @ApiProperty({
+        description: 'Mã sản phẩm (Ví dụ: SP123456). Nếu không nhập, hệ thống sẽ tự động tạo.',
+        required: false,
+        example: 'SP123456'
+    })
     @IsOptional()
     @IsString()
+    @Matches(/^SP[A-Z0-9]{6}$/, {
+        message: 'Mã sản phẩm phải bắt đầu bằng "SP" và theo sau là 6 ký tự chữ hoa hoặc số'
+    })
     code?: string;
 
     @ApiProperty({ description: 'Tên trang phục' })
@@ -31,33 +38,40 @@ export class CreateCostumeDto {
 
     @ApiProperty({
         description: 'Trạng thái trang phục',
-        enum: ['available', 'rented', 'maintenance'],
+        enum: ['available', 'maintenance'],
         default: 'available'
     })
-    @IsEnum(['available', 'rented', 'maintenance'], {
-        message: 'Trạng thái phải là một trong: available, rented, maintenance',
+    @IsEnum(['available', 'maintenance'], {
+        message: 'Trạng thái phải là một trong: available, maintenance',
     })
     status: CostumeStatus;
 
-    @ApiProperty({ description: 'URL hình ảnh', required: false })
+    @ApiProperty({
+        description: 'URL hình ảnh (có thể cập nhật sau bằng chức năng upload)',
+        required: false
+    })
     @IsOptional()
-    @IsUrl({}, { message: 'URL hình ảnh không hợp lệ' })
+    @IsString({ message: 'URL hình ảnh phải là chuỗi' })
     imageUrl?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true, message: 'URL hình ảnh phải là chuỗi' })
+    listImageUrl?: string[];
 
     @ApiProperty({ description: 'Mô tả trang phục' })
     @IsNotEmpty({ message: 'Mô tả là bắt buộc' })
     @IsString()
     description: string;
 
-    @ApiProperty({ description: 'Số lượng có sẵn', default: 1 })
+    @ApiProperty({
+        description: 'Số lượng có sẵn',
+        default: 1,
+        minimum: 0
+    })
     @IsNumber({}, { message: 'Số lượng phải là số' })
     @Min(0, { message: 'Số lượng không thể âm' })
     quantityAvailable: number;
-
-    @ApiProperty({ description: 'Số lượng đã cho thuê', default: 0 })
-    @IsNumber({}, { message: 'Số lượng phải là số' })
-    @Min(0, { message: 'Số lượng không thể âm' })
-    quantityRented: number;
 }
 
 export class UpdateCostumeDto extends CreateCostumeDto {
@@ -85,12 +99,12 @@ export class CostumeFilterDto {
 
     @ApiProperty({
         description: 'Lọc theo trạng thái',
-        enum: ['available', 'rented', 'maintenance'],
+        enum: ['available', 'maintenance'],
         required: false
     })
     @IsOptional()
-    @IsEnum(['available', 'rented', 'maintenance'], {
-        message: 'Trạng thái phải là một trong: available, rented, maintenance',
+    @IsEnum(['available', 'maintenance'], {
+        message: 'Trạng thái phải là một trong: available, maintenance',
     })
     status?: CostumeStatus;
 

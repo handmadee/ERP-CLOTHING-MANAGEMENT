@@ -2,13 +2,13 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
 import { Category } from '../../categories/models/category.model';
 
-export type CostumeStatus = 'available' | 'rented' | 'maintenance';
+export type CostumeStatus = 'available' | 'maintenance';
 
 export type CostumeDocument = Costume & Document;
 
 @Schema({ timestamps: true })
 export class Costume {
-    @Prop({ required: true, unique: true })
+    @Prop({ unique: true })
     code: string;
 
     @Prop({ required: true })
@@ -18,25 +18,25 @@ export class Costume {
     categoryId: Category;
 
     @Prop({ required: true, type: Number })
-    price: number;
+    price: number; // Giá thuê  
 
     @Prop({ required: true })
-    size: string;
+    size: string; // Kích thước 
 
-    @Prop({ required: true, enum: ['available', 'rented', 'maintenance'], default: 'available' })
+    @Prop({ required: true, enum: ['available', 'maintenance'], default: 'available' })
     status: CostumeStatus;
 
     @Prop()
-    imageUrl: string;
+    imageUrl: string;  // Hình ảnh sản phâm 
+
+    @Prop({ type: [String], default: [] })
+    listImageUrl: string[]; // Danh sách hình ảnh 
 
     @Prop({ required: true })
-    description: string;
+    description: string; // Mô tả sản phẩm 
 
     @Prop({ required: true, default: 1 })
-    quantityAvailable: number;
-
-    @Prop({ required: true, default: 0 })
-    quantityRented: number;
+    quantityAvailable: number; // Số lượng có sẵn 
 
     @Prop()
     createdAt: Date;

@@ -39,7 +39,7 @@ import { Public } from 'src/common/decorators/public.decorator';
 import { AuthGuard } from '../auth/guards/auth.guard';
 
 @ApiTags('Images')
-@Controller('images')
+@Controller('api/images')
 @UseGuards(AuthGuard)
 @ApiBearerAuth()
 export class ImagesController {
@@ -85,10 +85,6 @@ export class ImagesController {
     async uploadImage(
         @UploadedFile(
             new ParseFilePipeBuilder()
-                // .addFileTypeValidator({
-                //     // fileType: /^image\/(jpe?g|png|gif|webp)$/,
-                //     fileType: 'image',
-                // })
                 .addMaxSizeValidator({
                     maxSize: 5 * 1024 * 1024,
                 })
@@ -100,9 +96,6 @@ export class ImagesController {
         file: Express.Multer.File,
         @Body() uploadImageDto: UploadImageDto,
     ): Promise<Image> {
-        this.logger.log(`Uploading image: ${file.originalname}`);
-
-        // Save image info to database
         const savedImage = await this.imagesService.saveImageInfo(
             file,
             uploadImageDto.entityId,

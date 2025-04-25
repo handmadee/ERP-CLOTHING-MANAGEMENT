@@ -15,6 +15,7 @@ import { CostumesModule } from './modules/costumes/costumes.module';
 import { LoggerModule } from './common/modules/logger.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -66,7 +67,9 @@ import { OrdersModule } from './modules/orders/orders.module';
     CostumesModule,
     CustomersModule,
 
-    OrdersModule
+    OrdersModule,
+
+    DashboardModule
   ],
   controllers: [],
   providers: [

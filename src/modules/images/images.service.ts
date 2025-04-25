@@ -8,9 +8,12 @@ import * as sharp from 'sharp';
 import { promisify } from 'util';
 import { Image, ImageDocument } from './models/image.model';
 import { ImageFilterDto, LinkImageDto } from './dto/image.dto';
+import * as crypto from 'crypto';
+import * as mime from 'mime-types';
 
 const unlinkAsync = promisify(fs.unlink);
 const existsAsync = promisify(fs.exists);
+const mkdirAsync = promisify(fs.mkdir);
 
 @Injectable()
 export class ImagesService {
@@ -18,6 +21,9 @@ export class ImagesService {
     private readonly uploadPath: string;
     private readonly baseUrl: string;
     private readonly compressionQuality: number;
+    private readonly maxFileSize: number;
+    private readonly allowedMimeTypes: string[];
+    private readonly thumbnailSizes: { width: number; height: number }[];
 
     constructor(
         @InjectModel(Image.name) private imageModel: Model<ImageDocument>,
@@ -26,39 +32,165 @@ export class ImagesService {
         this.uploadPath = this.configService.get<string>('UPLOAD_PATH', './uploads');
         this.baseUrl = this.configService.get<string>('BASE_URL', 'http://localhost:3001');
         this.compressionQuality = this.configService.get<number>('COMPRESSION_QUALITY', 80);
+        this.maxFileSize = this.configService.get<number>('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
+        this.allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        this.thumbnailSizes = [
+            { width: 150, height: 150 },
+            { width: 300, height: 300 },  // Small
+            { width: 600, height: 600 },  // Medium
+        ];
+        this.initializeUploadDirectory();
     }
 
-    /**
-     * Save image file information to database
-     */
-    async saveImageInfo(file: Express.Multer.File, entityId?: string, entityType?: string) {
+    private async initializeUploadDirectory() {
         try {
-            const imageUrl = `${this.baseUrl}/api/images/${file.filename}`;
+            if (!await existsAsync(this.uploadPath)) {
+                await mkdirAsync(this.uploadPath, { recursive: true });
+            }
+            for (const size of this.thumbnailSizes) {
+                const sizePath = path.join(this.uploadPath, `${size.width}x${size.height}`);
+                if (!await existsAsync(sizePath)) {
+                    await mkdirAsync(sizePath, { recursive: true });
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Failed to initialize upload directories: ${error.message}`);
+            throw error;
+        }
+    }
+
+    private generateUniqueFilename(originalFilename: string): string {
+        const timestamp = Date.now();
+        const hash = crypto.createHash('md5')
+            .update(`${originalFilename}${timestamp}`)
+            .digest('hex');
+        const ext = path.extname(originalFilename);
+        return `${hash}${ext}`;
+    }
+
+    private async validateFile(file: Express.Multer.File): Promise<void> {
+        if (!file) {
+            this.logger.error('No file provided in the request');
+            throw new BadRequestException('No file uploaded');
+        }
+
+        if (file.size <= 0) {
+            this.logger.error('File is empty');
+            throw new BadRequestException('Empty file uploaded');
+        }
+
+        if (file.size > this.maxFileSize) {
+            this.logger.warn(`File size ${file.size} bytes exceeds limit of ${this.maxFileSize} bytes`);
+            throw new BadRequestException(`File size exceeds ${this.maxFileSize / (1024 * 1024)}MB limit`);
+        }
+
+        if (!this.allowedMimeTypes.includes(file.mimetype)) {
+            this.logger.warn(`Invalid mime type: ${file.mimetype}. Allowed types: ${this.allowedMimeTypes.join(', ')}`);
+            throw new BadRequestException(`Invalid file type. Allowed types: ${this.allowedMimeTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}`);
+        }
+
+        try {
+            const buffer = file.buffer || await fs.promises.readFile(file.path);
+            const isJPEG = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+            const isPNG = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+            const isGIF = buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46;
+            const isWEBP = buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+
+            if (!isJPEG && !isPNG && !isGIF && !isWEBP) {
+                this.logger.error('File magic numbers do not match any supported image format');
+                throw new BadRequestException('Invalid image format. File appears to be corrupted or not a supported image type.');
+            }
+            const metadata = await sharp(buffer).metadata();
+            if (!metadata.width || !metadata.height) {
+                this.logger.error('Image metadata missing dimensions');
+                throw new BadRequestException('Invalid image file: Could not determine image dimensions');
+            }
+            this.logger.debug(`Image validation successful: ${metadata.format} ${metadata.width}x${metadata.height}`);
+        } catch (error) {
+            this.logger.error(`Image validation failed: ${error.message}`, error.stack);
+            throw new BadRequestException(`Invalid image file: ${error.message}`);
+        }
+    }
+
+    async saveImageInfo(file: Express.Multer.File, entityId?: string, entityType?: string): Promise<Image> {
+        try {
+            await this.validateFile(file);
+
+            const filename = this.generateUniqueFilename(file.originalname);
+            const filePath = path.join(this.uploadPath, filename);
+
+            // If file is already on disk (using disk storage), move it to the right location
+            if (file.path) {
+                await fs.promises.rename(file.path, filePath);
+            } else {
+                // If using memory storage, save the buffer to disk
+                await sharp(file.buffer).withMetadata().toFile(filePath);
+            }
+
+            // Get image metadata using the file from disk
+            const metadata = await sharp(filePath).metadata();
+
+            // Generate thumbnails
+            const thumbnails = await Promise.all(
+                this.thumbnailSizes.map(async size => {
+                    const thumbFilename = `${size.width}x${size.height}_${filename}`;
+                    const thumbPath = path.join(this.uploadPath, `${size.width}x${size.height}`, thumbFilename);
+
+                    await sharp(filePath)
+                        .resize(size.width, size.height, {
+                            fit: 'cover',
+                            position: 'center'
+                        })
+                        .withMetadata()
+                        .toFile(thumbPath);
+
+                    return {
+                        size: `${size.width}x${size.height}`,
+                        url: `${this.baseUrl}/uploads/${size.width}x${size.height}/${thumbFilename}`
+                    };
+                })
+            );
+
+            const imageUrl = `${this.baseUrl}/uploads/${filename}`;
 
             const imageData = {
                 originalName: file.originalname,
-                filename: file.filename,
-                path: file.path,
+                filename,
+                path: filePath,
                 mimetype: file.mimetype,
                 size: file.size,
-                status: 'completed',
+                status: 'pending',
                 url: imageUrl,
+                metadata: {
+                    width: metadata.width,
+                    height: metadata.height,
+                    format: metadata.format,
+                    thumbnails,
+                    originalSize: file.size
+                },
                 ...(entityId && { entityId: new Types.ObjectId(entityId) }),
                 ...(entityType && { entityType }),
             };
 
             const createdImage = new this.imageModel(imageData);
-            return await createdImage.save();
+            const savedImage = await createdImage.save();
+
+            // Trigger async compression
+            this.compressImage(savedImage._id.toString()).catch(error => {
+                this.logger.error(`Background compression failed: ${error.message}`);
+            });
+
+            return savedImage;
         } catch (error) {
-            this.logger.error(`Failed to save image info: ${error.message}`, error.stack);
-            throw new BadRequestException('Failed to save image information');
+            this.logger.error(`Failed to save image: ${error.message}`, error.stack);
+            throw new BadRequestException(`Failed to save image: ${error.message}`);
         }
     }
 
     /**
      * Compress an uploaded image
      */
-    async compressImage(imageId: string) {
+    async compressImage(imageId: string): Promise<Image> {
         const image = await this.findById(imageId);
 
         if (image.compressed) {
@@ -78,17 +210,30 @@ export class ImagesService {
             // Get image info
             const metadata = await sharp(originalPath).metadata();
 
-            // Compress the image based on type
+            // Optimize compression settings based on image type
             let transformer = sharp(originalPath).withMetadata();
 
             if (fileExt === '.jpg' || fileExt === '.jpeg') {
-                transformer = transformer.jpeg({ quality: this.compressionQuality });
+                transformer = transformer
+                    .jpeg({
+                        quality: this.compressionQuality,
+                        mozjpeg: true // Use mozjpeg for better compression
+                    });
             } else if (fileExt === '.png') {
-                transformer = transformer.png({ quality: this.compressionQuality });
+                transformer = transformer
+                    .png({
+                        quality: this.compressionQuality,
+                        compressionLevel: 9,
+                        palette: true
+                    });
             } else if (fileExt === '.webp') {
-                transformer = transformer.webp({ quality: this.compressionQuality });
+                transformer = transformer
+                    .webp({
+                        quality: this.compressionQuality,
+                        lossless: false,
+                        nearLossless: true
+                    });
             } else if (fileExt === '.gif') {
-                // GIF compression is limited in sharp, we'll just optimize it
                 transformer = transformer.gif();
             }
 
@@ -97,23 +242,18 @@ export class ImagesService {
 
             // Get compressed file size
             const compressedStats = fs.statSync(compressedPath);
-
-            // Update the image record
             const originalSize = image.size;
             const compressedSize = compressedStats.size;
             const compressionRatio = Math.round((1 - (compressedSize / originalSize)) * 100);
 
-            // If compression actually made it larger, keep the original
+            // If compression didn't help, keep original
             if (compressedSize >= originalSize) {
                 await unlinkAsync(compressedPath);
 
-                // Update image record
                 image.compressed = true;
                 image.status = 'completed';
                 image.metadata = {
                     ...image.metadata,
-                    width: metadata.width,
-                    height: metadata.height,
                     compressionAttempted: true,
                     compressionSuccessful: false,
                     reason: 'Compression would increase file size'
@@ -122,10 +262,9 @@ export class ImagesService {
                 return await image.save();
             }
 
-            // Delete the original file if compression was successful
-            await unlinkAsync(originalPath);
-
             // Update image record with new file info
+            await unlinkAsync(originalPath); // Delete original
+
             image.filename = compressedFilename;
             image.path = compressedPath;
             image.size = compressedSize;
@@ -136,15 +275,18 @@ export class ImagesService {
                 ...image.metadata,
                 width: metadata.width,
                 height: metadata.height,
+                format: metadata.format,
                 originalSize,
                 compressedSize,
                 compressionRatio: `${compressionRatio}%`,
-                compressionQuality: this.compressionQuality
+                compressionQuality: this.compressionQuality,
+                optimizationTechnique: fileExt === '.jpg' ? 'mozjpeg' :
+                    fileExt === '.png' ? 'pngquant' :
+                        fileExt === '.webp' ? 'webp' : 'standard'
             };
 
             return await image.save();
         } catch (error) {
-            // Update record to show processing failed
             image.status = 'failed';
             image.metadata = {
                 ...image.metadata,
@@ -287,5 +429,66 @@ export class ImagesService {
             processed,
             failed
         };
+    }
+
+    /**
+     * Clean up old unlinked images
+     */
+    async cleanupUnlinkedImages(olderThanDays: number = 7): Promise<number> {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+        const unlinkedImages = await this.imageModel.find({
+            entityId: { $exists: false },
+            createdAt: { $lt: cutoffDate }
+        });
+
+        let deletedCount = 0;
+        for (const image of unlinkedImages) {
+            try {
+                await this.deleteImage(image._id.toString());
+                deletedCount++;
+            } catch (error) {
+                this.logger.error(`Failed to delete image ${image._id}: ${error.message}`);
+            }
+        }
+
+        return deletedCount;
+    }
+
+    /**
+     * Get image dimensions and optimization suggestions
+     */
+    async analyzeImage(imageId: string): Promise<any> {
+        const image = await this.findById(imageId);
+        const metadata = await sharp(image.path).metadata();
+
+        const analysis = {
+            dimensions: {
+                width: metadata?.width ?? 0,
+                height: metadata?.height ?? 0,
+                aspectRatio: (metadata?.width && metadata?.height) ? metadata.width / metadata.height : 0
+            },
+            size: {
+                bytes: image.size,
+                megabytes: (image.size / (1024 * 1024)).toFixed(2)
+            },
+            format: metadata?.format ?? 'unknown',
+            compressed: image.compressed,
+            suggestions: [] as string[]
+        };
+
+        // Add optimization suggestions
+        if (!image.compressed) {
+            analysis.suggestions.push('Image can be compressed to reduce file size');
+        }
+        if ((metadata?.width ?? 0) > 2000 || (metadata?.height ?? 0) > 2000) {
+            analysis.suggestions.push('Image dimensions are very large, consider resizing');
+        }
+        if (image.mimetype === 'image/png' && image.size > 1024 * 1024) {
+            analysis.suggestions.push('Large PNG file, consider converting to WebP or JPEG');
+        }
+
+        return analysis;
     }
 } 

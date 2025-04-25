@@ -412,4 +412,119 @@ export class CustomersService {
             .findByIdAndUpdate(customerId, update, { new: true })
             .exec();
     }
+
+    async findByIds(ids: string[]): Promise<any[]> {
+        return this.customerModel.find({
+            _id: { $in: ids }
+        }).exec();
+    }
+
+    async getCustomersWithStats(query: {
+        page?: number;
+        limit?: number;
+        search?: string;
+    }) {
+        try {
+            const {
+                page = 1,
+                limit = 10,
+                search = ''
+            } = query;
+
+            const skip = (page - 1) * limit;
+
+            // Build match conditions
+            const matchStage: any = {};
+
+            if (search) {
+                matchStage.$or = [
+                    { fullName: { $regex: search, $options: 'i' } },
+                    { phone: { $regex: search, $options: 'i' } },
+                    { customerCode: { $regex: search, $options: 'i' } }
+                ];
+            }
+
+            const pipeline = [
+                { $match: matchStage },
+                {
+                    $lookup: {
+                        from: 'orders',
+                        localField: '_id',
+                        foreignField: 'customerId',
+                        as: 'orders'
+                    }
+                },
+                {
+                    $project: {
+                        _id: 1,
+                        customerCode: 1,
+                        fullName: 1,
+                        phone: 1,
+                        email: 1,
+                        address: 1,
+                        totalSpent: { $sum: '$orders.total' },
+                        orderStats: {
+                            total: { $size: '$orders' },
+                            pending: {
+                                $size: {
+                                    $filter: {
+                                        input: '$orders',
+                                        as: 'order',
+                                        cond: { $eq: ['$$order.status', 'pending'] }
+                                    }
+                                }
+                            },
+                            active: {
+                                $size: {
+                                    $filter: {
+                                        input: '$orders',
+                                        as: 'order',
+                                        cond: { $eq: ['$$order.status', 'active'] }
+                                    }
+                                }
+                            },
+                            completed: {
+                                $size: {
+                                    $filter: {
+                                        input: '$orders',
+                                        as: 'order',
+                                        cond: { $eq: ['$$order.status', 'completed'] }
+                                    }
+                                }
+                            },
+                            cancelled: {
+                                $size: {
+                                    $filter: {
+                                        input: '$orders',
+                                        as: 'order',
+                                        cond: { $eq: ['$$order.status', 'cancelled'] }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                { $skip: skip },
+                { $limit: parseInt(String(limit)) }
+            ];
+
+            const [customers, totalCount] = await Promise.all([
+                this.customerModel.aggregate(pipeline),
+                this.customerModel.countDocuments(matchStage)
+            ]);
+
+            return {
+                data: customers,
+                metadata: {
+                    total: totalCount,
+                    page: parseInt(String(page)),
+                    limit: parseInt(String(limit)),
+                    totalPages: Math.ceil(totalCount / limit)
+                }
+            };
+        } catch (error) {
+            this.logger.error('Error in getCustomersWithStats:', error);
+            throw new InternalServerErrorException('Lỗi khi lấy thông tin khách hàng');
+        }
+    }
 } 

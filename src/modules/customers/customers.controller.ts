@@ -174,4 +174,65 @@ export class CustomersController {
     ) {
         return this.customersService.updateCustomerStats(id, stats);
     }
+
+    @Get('/detailed-list')
+    @Roles(Role.ADMIN, Role.USER)
+    @ApiOperation({ summary: 'Get customer list with order statistics' })
+    @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+    @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+    @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by name, phone or customer code' })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        description: 'Return customer list with order statistics.',
+        schema: {
+            type: 'object',
+            properties: {
+                data: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            _id: { type: 'string' },
+                            customerCode: { type: 'string' },
+                            fullName: { type: 'string' },
+                            phone: { type: 'string' },
+                            email: { type: 'string' },
+                            address: { type: 'string' },
+                            totalSpent: { type: 'number' },
+                            orderStats: {
+                                type: 'object',
+                                properties: {
+                                    total: { type: 'number' },
+                                    pending: { type: 'number' },
+                                    active: { type: 'number' },
+                                    completed: { type: 'number' },
+                                    cancelled: { type: 'number' }
+                                }
+                            }
+                        }
+                    }
+                },
+                metadata: {
+                    type: 'object',
+                    properties: {
+                        total: { type: 'number' },
+                        page: { type: 'number' },
+                        limit: { type: 'number' },
+                        totalPages: { type: 'number' }
+                    }
+                }
+            }
+        }
+    })
+    async getCustomersWithStats(
+        @Query('page') page?: number,
+        @Query('limit') limit?: number,
+        @Query('search') search?: string,
+    ) {
+        return this.customersService.getCustomersWithStats({
+            page,
+            limit,
+            search
+        });
+    }
 } 

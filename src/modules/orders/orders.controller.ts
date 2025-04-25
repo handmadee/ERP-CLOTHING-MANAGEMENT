@@ -32,7 +32,7 @@ import { RequestWithUser } from 'src/interfaces/requestUser.inerface';
 @ApiTags('Orders')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('orders')
+@Controller('api/orders')
 
 export class OrdersController {
     constructor(private readonly ordersService: OrdersService) { }
