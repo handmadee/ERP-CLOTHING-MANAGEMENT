@@ -427,15 +427,11 @@ export class CustomersService {
         try {
             const {
                 page = 1,
-                limit = 10,
+                limit = 10000,
                 search = ''
             } = query;
-
             const skip = (page - 1) * limit;
-
-            // Build match conditions
             const matchStage: any = {};
-
             if (search) {
                 matchStage.$or = [
                     { fullName: { $regex: search, $options: 'i' } },

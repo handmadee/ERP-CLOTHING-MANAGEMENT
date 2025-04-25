@@ -48,6 +48,56 @@ export class CostumesController {
         this.logger.setContext('CostumesController');
     }
 
+    @Get('search')
+    @Roles(Role.ADMIN, Role.USER)
+    @ApiOperation({ summary: 'Search costumes by name, code or description' })
+    @ApiQuery({ name: 'searchTerm', required: true, type: String, description: 'Search term to match against name, code or description' })
+    @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+    @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        description: 'Returns matching costumes with pagination',
+        schema: {
+            type: 'object',
+            properties: {
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            _id: { type: 'string' },
+                            code: { type: 'string' },
+                            name: { type: 'string' },
+                            description: { type: 'string' },
+                            price: { type: 'number' },
+                            size: { type: 'string' },
+                            status: { type: 'string' },
+                            imageUrl: { type: 'string' },
+                            listImageUrl: { type: 'array', items: { type: 'string' } },
+                            category: {
+                                type: 'object',
+                                properties: {
+                                    _id: { type: 'string' },
+                                    name: { type: 'string' }
+                                }
+                            }
+                        }
+                    }
+                },
+                total: { type: 'number' },
+                page: { type: 'number' },
+                limit: { type: 'number' }
+            }
+        }
+    })
+    async searchCostumes(
+        @Query('searchTerm') searchTerm: string,
+        @Query('page') page?: number,
+        @Query('limit') limit?: number,
+    ) {
+        return this.costumesService.searchCostumes(searchTerm, page, limit);
+    }
+
     @Post()
     @Roles(Role.ADMIN, Role.SUPER_ADMIN)
     @ApiOperation({ summary: 'Tạo trang phục mới' })
@@ -205,4 +255,5 @@ export class CostumesController {
 
         return this.imagesService.findByEntity(id, 'costume');
     }
+
 } 

@@ -78,7 +78,6 @@ export class CostumesService {
     }
 
     async findAll(filterDto: CostumeFilterDto): Promise<{ items: Costume[]; total: number; page: number; limit: number }> {
-        console.log("🚀 ~ CostumesService ~ findAll ~ filterDto:", filterDto)
         const {
             code,
             name,
@@ -487,5 +486,67 @@ export class CostumesService {
         return this.costumeModel.find({
             _id: { $in: ids.map(id => new Types.ObjectId(id)) }
         } as any).exec();
+    }
+
+    async searchCostumes(
+        searchTerm: string,
+        page: number = 1,
+        limit: number = 10
+    ): Promise<{ items: Costume[]; total: number; page: number; limit: number }> {
+        const skip = (page - 1) * limit;
+
+        const searchFilter = {
+            $or: [
+                { name: { $regex: searchTerm, $options: 'i' } },
+                { code: { $regex: searchTerm, $options: 'i' } },
+                { description: { $regex: searchTerm, $options: 'i' } }
+            ]
+        };
+
+        // Execute query with pagination and populate category
+        const items = await this.costumeModel.aggregate([
+            { $match: searchFilter },
+            {
+                $lookup: {
+                    from: 'categories',
+                    localField: 'categoryId',
+                    foreignField: '_id',
+                    as: 'category'
+                }
+            },
+            { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+            { $sort: { name: 1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+                $project: {
+                    _id: 1,
+                    code: 1,
+                    name: 1,
+                    description: 1,
+                    price: 1,
+                    size: 1,
+                    quantityAvailable: 1,
+                    color: 1,
+                    status: 1,
+                    imageUrl: 1,
+                    listImageUrl: 1,
+                    category: {
+                        _id: '$category._id',
+                        name: '$category.name'
+                    }
+                }
+            }
+        ]);
+
+        // Get total count of matching documents
+        const total = await this.costumeModel.countDocuments(searchFilter).exec();
+
+        return {
+            items,
+            total,
+            page,
+            limit
+        };
     }
 } 
