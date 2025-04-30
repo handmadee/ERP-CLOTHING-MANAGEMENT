@@ -149,6 +149,45 @@ export class OrdersController {
         return this.ordersService.update(id, updateOrderDto);
     }
 
+    @Patch(':id/status')
+    @Roles('admin', 'staff')
+    @ApiOperation({ summary: 'Update order status with additional actions' })
+    @ApiParam({ name: 'id', description: 'Order ID' })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        description: 'The order status has been successfully updated.',
+        type: Order
+    })
+    @ApiResponse({
+        status: HttpStatus.NOT_FOUND,
+        description: 'Order not found.',
+    })
+    @ApiResponse({
+        status: HttpStatus.BAD_REQUEST,
+        description: 'Invalid status transition.',
+    })
+    updateStatus(
+        @Param('id') id: string,
+        @Body() statusUpdate: {
+            status: string;
+            note?: string;
+            isFullyPaid?: boolean;
+            returnedOnTime?: boolean;
+        },
+        @Req() req: RequestWithUser
+    ) {
+        return this.ordersService.updateOrderStatus(
+            id,
+            statusUpdate.status,
+            req.user.userId,
+            {
+                note: statusUpdate.note,
+                isFullyPaid: statusUpdate.isFullyPaid,
+                returnedOnTime: statusUpdate.returnedOnTime
+            }
+        );
+    }
+
     @Delete(':id')
     @Roles('admin')
     @ApiOperation({ summary: 'Delete a specific order' })

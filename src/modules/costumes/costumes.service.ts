@@ -161,8 +161,6 @@ export class CostumesService {
                 this.logger.warn(`Costume with ID ${id} not found`);
                 throw new NotFoundException(`Costume with ID ${id} not found`);
             }
-
-            // Get rental history for this costume
             const rentalHistory = await this.costumeModel.aggregate([
                 { $match: { _id: costume._id } },
                 {
@@ -406,32 +404,37 @@ export class CostumesService {
     // Additional business methods
     async updateQuantity(id: string, availableDelta: number, rentedDelta: number) {
         this.logger.log(`Updating quantities for costume ID ${id}: available ${availableDelta > 0 ? '+' : ''}${availableDelta}, rented ${rentedDelta > 0 ? '+' : ''}${rentedDelta}`);
-        const costume = await this.findOne(id);
-        const newAvailable = costume.quantityAvailable + availableDelta;
-        const newRented = costume.quantityRented + rentedDelta;
+        const availableDeltaNum = Number(availableDelta) || 0;
+        const costume = await this.costumeModel.findById(id).lean().exec();
+        if (!costume) {
+            throw new NotFoundException(`Costume with ID ${id} not found`);
+        }
+        const currentAvailable = Number(costume.quantityAvailable) || 0;
+        const newAvailable = currentAvailable + availableDeltaNum;
         if (newAvailable < 0) {
             throw new BadRequestException('Available quantity cannot be negative');
         }
-        if (newRented < 0) {
-            throw new BadRequestException('Rented quantity cannot be negative');
-        }
+        // Determine new status
         let newStatus = costume.status;
-        if (newAvailable === 0 && newRented > 0) {
-            newStatus = 'rented';
+        if (newAvailable === 0) {
+            newStatus = 'maintenance';
         } else if (newAvailable > 0) {
             newStatus = 'available';
         }
-
-        const updatedCostume = await this.costumeModel.findByIdAndUpdate(
-            id,
-            {
-                quantityAvailable: newAvailable,
-                quantityRented: newRented,
-                status: newStatus
-            } as any,
-            { new: true }
-        ).exec();
-        return updatedCostume;
+        try {
+            const updatedCostume = await this.costumeModel.findByIdAndUpdate(
+                id,
+                {
+                    quantityAvailable: newAvailable,
+                    status: newStatus
+                } as any,
+                { new: true }
+            ).exec();
+            return updatedCostume;
+        } catch (error) {
+            this.logger.error(`Error updating costume quantities: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     // Reporting and analytics methods

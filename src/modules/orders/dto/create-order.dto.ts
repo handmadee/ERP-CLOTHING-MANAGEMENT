@@ -43,14 +43,15 @@ export class CreateOrderItemDto {
     @Min(0, { message: 'Đơn giá không thể âm' })
     price: number;
 
-    @ApiProperty({
-        description: 'Thành tiền',
+    @ApiPropertyOptional({
+        description: 'Thành tiền (tự động tính từ số lượng * đơn giá)',
         minimum: 0,
         example: 100000
     })
     @IsNumber()
+    @IsOptional()
     @Min(0, { message: 'Thành tiền không thể âm' })
-    subtotal: number;
+    subtotal?: number;
 }
 
 export class CreateOrderDto {
@@ -85,14 +86,6 @@ export class CreateOrderDto {
     @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
     @Matches(/^[0-9]{10}$/, { message: 'Số điện thoại không hợp lệ' })
     customerPhone: string;
-
-    @ApiPropertyOptional({
-        description: 'Email khách hàng',
-        example: 'example@email.com'
-    })
-    @IsOptional()
-    @IsEmail({}, { message: 'Email không hợp lệ' })
-    customerEmail?: string;
 
     @ApiPropertyOptional({
         description: 'Địa chỉ khách hàng',

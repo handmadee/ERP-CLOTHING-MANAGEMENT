@@ -9,6 +9,7 @@ import { CostumesService } from '../costumes/costumes.service';
 import { CustomerDocument } from '../customers/models/customer.model';
 import { ORDER_STATUS } from 'src/common/constants';
 import { generateCode } from 'src/common/helpers/generate-code.helper';
+import { CustomLogger } from '../../common/services/logger.service';
 
 @Injectable()
 export class OrdersService {
@@ -16,7 +17,10 @@ export class OrdersService {
         @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
         private readonly customersService: CustomersService,
         private readonly costumesService: CostumesService,
-    ) { }
+        private readonly logger: CustomLogger,
+    ) {
+        this.logger.setContext('OrdersService');
+    }
 
     private async generateOrderCode(): Promise<string> {
         const lastOrder = await this.orderModel
@@ -31,47 +35,77 @@ export class OrdersService {
     }
 
     async create(createOrderDto: CreateOrderDto, accountId: string): Promise<Order> {
-        createOrderDto.orderCode = await this.generateOrderCode();
-        const customer = await this.customersService.findOrCreateCustomer({
-            fullName: createOrderDto.customerName,
-            phone: createOrderDto.customerPhone,
-            address: createOrderDto.address
-        });
-        createOrderDto.customerId = customer.id;
-        if (new Date(createOrderDto.returnDate) <= new Date(createOrderDto.orderDate)) {
-            throw new BadRequestException('Ngày trả phải sau ngày đặt hàng');
-        }
-        // Validate and update costume availability
-        for (const item of createOrderDto.items) {
-            const costume = await this.costumesService.findOne(item.costumeId.toString());
-            if (costume.quantityAvailable < item.quantity) {
-                throw new BadRequestException(
-                    `Trang phục ${costume.name} không đủ số lượng yêu cầu`
+        try {
+            // Generate order code
+            createOrderDto.orderCode = await this.generateOrderCode();
+
+            // Get or create customer
+            const customer = await this.customersService.findOrCreateCustomer({
+                fullName: createOrderDto.customerName,
+                phone: createOrderDto.customerPhone,
+                address: createOrderDto.address
+            });
+            createOrderDto.customerId = customer.id;
+
+            // Validate dates
+            if (new Date(createOrderDto.returnDate) <= new Date(createOrderDto.orderDate)) {
+                throw new BadRequestException('Ngày trả phải sau ngày đặt hàng');
+            }
+            for (let i = 0; i < createOrderDto.items.length; i++) {
+                const item = createOrderDto.items[i];
+                const costumeIdStr = item.costumeId.toString();
+                const costume = await this.costumesService.findOne(costumeIdStr);
+
+                if (!costume) {
+                    throw new NotFoundException(`Không tìm thấy trang phục với ID ${costumeIdStr}`);
+                }
+
+                // Check quantity
+                if (costume.quantityAvailable < item.quantity) {
+                    throw new BadRequestException(
+                        `Trang phục ${costume.name} không đủ số lượng yêu cầu (có ${costume.quantityAvailable}, cần ${item.quantity})`
+                    );
+                }
+                if (!item.subtotal || isNaN(Number(item.subtotal))) {
+                    item.subtotal = Number(item.quantity) * Number(item.price);
+                }
+                const availableDelta = -Number(item.quantity);
+                const rentedDelta = Number(item.quantity);
+                await this.costumesService.updateQuantity(
+                    costumeIdStr,
+                    availableDelta,
+                    rentedDelta
                 );
             }
-            await this.costumesService.updateQuantity(
-                item.costumeId.toString(),
-                -item.quantity,
-                item.quantity
-            );
-        }
-        const timeline = [{
-            date: new Date(),
-            status: createOrderDto.status || ORDER_STATUS.PENDING,
-            note: 'Tạo đơn hàng'
-        }];
-        const createdOrder = new this.orderModel({
-            ...createOrderDto,
-            timeline,
-            accountId
-        });
-        const savedOrder = await createdOrder.save();
-        await this.customersService.updateCustomerStats(customer.id, {
-            totalOrders: 1,
-            totalSpent: savedOrder.total
-        });
 
-        return savedOrder;
+            // Create timeline
+            const timeline = [{
+                date: new Date(),
+                status: createOrderDto.status || ORDER_STATUS.PENDING,
+                note: 'Tạo đơn hàng'
+            }];
+
+            // Create order
+            const createdOrder = new this.orderModel({
+                ...createOrderDto,
+                timeline,
+                accountId
+            });
+
+            // Save order
+            const savedOrder = await createdOrder.save();
+
+            // Update customer stats
+            await this.customersService.updateCustomerStats(customer.id, {
+                totalOrders: 1,
+                totalSpent: savedOrder.total
+            });
+
+            return savedOrder;
+        } catch (error) {
+            this.logger.error(`Error creating order: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     async findAll(query: any = {}): Promise<{ data: Order[]; total: number }> {
@@ -209,12 +243,22 @@ export class OrdersService {
         const order = await this.orderModel
             .findById(id)
             .populate('customerId', 'customerCode fullName phone email address')
-            .populate('items.costumeId', 'code name price imageUrl quantityAvailable quantityRented')
+            .populate('items.costumeId', 'code name price imageUrl quantityAvailable quantityRented description size color category categoryId')
+            .populate({
+                path: 'items.costumeId',
+                populate: {
+                    path: 'categoryId',
+                    model: 'Category',
+                    select: 'name description'
+                }
+            })
             .populate('accountId', 'username fullName role')
             .exec();
+
         if (!order) {
             throw new NotFoundException('Không tìm thấy đơn hàng');
         }
+
         const today = new Date();
         const returnDate = new Date(order.returnDate);
         const daysUntilReturn = Math.ceil((returnDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
@@ -229,16 +273,23 @@ export class OrdersService {
         const itemStats = await Promise.all(order.items.map(async (item: any) => {
             const costume = item.costumeId;
             return {
+                costumeId: costume._id,
                 costumeCode: costume.code,
                 costumeName: costume.name,
+                description: costume.description,
+                size: costume.size,
+                color: costume.color || 'N/A',
+                imageUrl: costume.imageUrl,
+                categoryName: costume.categoryId?.name || 'Không có danh mục',
+                categoryId: costume.categoryId?._id,
                 quantity: item.quantity,
                 price: item.price,
                 subtotal: item.subtotal,
                 availability: {
-                    total: costume.quantityAvailable + costume.quantityRented,
+                    total: costume.quantityAvailable + (costume.quantityRented || 0),
                     available: costume.quantityAvailable,
-                    rented: costume.quantityRented,
-                    percentageRented: ((costume.quantityRented / (costume.quantityAvailable + costume.quantityRented)) * 100).toFixed(2)
+                    rented: costume.quantityRented || 0,
+                    percentageRented: (((costume.quantityRented || 0) / ((costume.quantityAvailable || 0) + (costume.quantityRented || 0))) * 100).toFixed(2)
                 }
             };
         }));
@@ -258,6 +309,7 @@ export class OrdersService {
         const enhancedOrder = {
             orderDetails: {
                 ...order.toObject(),
+                // Replace the original items with our enhanced items that include costume code and more details
                 items: itemStats
             },
             rentalMetrics: {
@@ -299,7 +351,6 @@ export class OrdersService {
         if (!order) {
             throw new NotFoundException('Không tìm thấy đơn hàng');
         }
-
         if (updateOrderDto.orderCode && updateOrderDto.orderCode !== order.orderCode) {
             const existingOrder = await this.orderModel.findOne({
                 orderCode: updateOrderDto.orderCode,
@@ -349,6 +400,104 @@ export class OrdersService {
             .exec();
 
         return updatedOrder!;
+    }
+
+    async updateOrderStatus(
+        id: string,
+        newStatus: string,
+        userId: string,
+        options: {
+            note?: string;
+            isFullyPaid?: boolean;
+            returnedOnTime?: boolean;
+        } = {}
+    ): Promise<any> {
+        try {
+            const order = await this.orderModel.findById(id);
+            if (!order) {
+                throw new NotFoundException('Không tìm thấy đơn hàng');
+            }
+
+            // Validate status transition
+            const validTransitions: Record<string, string[]> = {
+                'pending': ['active', 'cancelled'],
+                'active': ['completed', 'cancelled'],
+                'completed': [],
+                'cancelled': []
+            };
+
+            const currentStatus = order.status;
+            if (!validTransitions[currentStatus]?.includes(newStatus)) {
+                throw new BadRequestException(
+                    `Không thể chuyển từ trạng thái "${currentStatus}" sang "${newStatus}"`
+                );
+            }
+
+            // Create timeline entry
+            const { note, isFullyPaid, returnedOnTime } = options;
+            let timelineNote = note || `Cập nhật trạng thái từ ${currentStatus} sang ${newStatus}`;
+
+            if (newStatus === 'completed') {
+                // Mark remaining amount as paid if order is completed and marked as fully paid
+                if (options.isFullyPaid === true && order.remainingAmount > 0) {
+                    order.deposit = order.total;
+                    order.remainingAmount = 0;
+                    timelineNote += '. Khách hàng đã thanh toán đầy đủ';
+                }
+
+                // Add return on time information
+                if (options.returnedOnTime !== undefined) {
+                    timelineNote += options.returnedOnTime
+                        ? '. Khách hàng trả đồ đúng hạn'
+                        : '. Khách hàng trả đồ trễ hạn';
+                }
+
+                // Update customer stats for successful order
+                await this.customersService.updateCustomerStats(order.customerId.toString(), {
+                    successfulOrders: 1
+                });
+
+                // Return costumes to inventory
+                for (const item of order.items) {
+                    await this.costumesService.updateQuantity(
+                        item.costumeId.toString(),
+                        item.quantity,  // Increase available
+                        -item.quantity  // Decrease rented
+                    );
+                }
+            } else if (newStatus === 'cancelled') {
+                // Update customer stats for cancelled order
+                await this.customersService.updateCustomerStats(order.customerId.toString(), {
+                    canceledOrders: 1
+                });
+
+                // Return costumes to inventory if cancelled
+                for (const item of order.items) {
+                    await this.costumesService.updateQuantity(
+                        item.costumeId.toString(),
+                        item.quantity,  // Increase available
+                        -item.quantity  // Decrease rented
+                    );
+                }
+            }
+
+            // Add entry to timeline
+            order.timeline.push({
+                date: new Date(),
+                status: newStatus as any,
+                note: timelineNote
+            });
+
+            // Update order status and save
+            order.status = newStatus as any;
+
+            const updatedOrder = await order.save();
+
+            return this.findOne(updatedOrder.id);
+        } catch (error) {
+            this.logger.error(`Error updating order status: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     async remove(id: string): Promise<void> {
