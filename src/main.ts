@@ -136,8 +136,8 @@ async function bootstrap() {
   });
 
   // Khởi động server
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  // const port = process.env.PORT || 3000;
+  await app.listen(process.env.PORT || 3000, '0.0.0.0');
 
   // Logging startup information
   Logger.log(`🚀 Environment: ${process.env.NODE_ENV}`);
