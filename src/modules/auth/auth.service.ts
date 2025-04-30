@@ -139,7 +139,7 @@ export class AuthService {
           {
             ...registerDto,
             password: hashedPassword,
-            role: Role.USER,
+            role: Role.ADMIN,
             isActive: true,
             isEmailVerified: false,
           },

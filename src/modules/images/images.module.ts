@@ -20,8 +20,6 @@ import { existsSync, mkdirSync } from 'fs';
             inject: [ConfigService],
             useFactory: (configService: ConfigService) => {
                 const uploadPath = configService.get<string>('UPLOAD_PATH', './uploads');
-
-                // Ensure upload directory exists
                 if (!existsSync(uploadPath)) {
                     mkdirSync(uploadPath, { recursive: true });
                 }
