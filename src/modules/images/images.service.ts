@@ -30,7 +30,7 @@ export class ImagesService {
         private configService: ConfigService,
     ) {
         this.uploadPath = this.configService.get<string>('UPLOAD_PATH', './uploads');
-        this.baseUrl = this.configService.get<string>('BASE_URL', 'http://14.225.207.9:3000');
+        this.baseUrl = this.configService.get<string>('BASE_URL', 'http://14.225.207.9:5004');
         this.compressionQuality = this.configService.get<number>('COMPRESSION_QUALITY', 80);
         this.maxFileSize = this.configService.get<number>('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
         this.allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
