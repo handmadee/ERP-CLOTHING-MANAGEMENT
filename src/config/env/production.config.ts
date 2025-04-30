@@ -1,10 +1,10 @@
 export default () => {
-    console.log(`NOT FOUND`)
-    console.log(process.env.MONGODB_URI)
+  console.log(`NOT FOUND`);
+  console.log(process.env.MONGODB_URI);
   const config = {
     env: 'production',
     port: parseInt(process.env.PORT || '3000', 10),
-    
+
     database: {
       uri: process.env.MONGODB_URI || '',
       name: process.env.MONGODB_DB_NAME || 'wedding_management',
@@ -124,4 +124,4 @@ export default () => {
   }
 
   return config;
-}; 
+};

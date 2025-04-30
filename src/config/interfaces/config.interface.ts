@@ -1,7 +1,7 @@
 export interface Config {
   env: string;
   port: number;
-  
+
   database: {
     uri: string;
     name: string;
@@ -88,4 +88,4 @@ export interface Config {
       xssFilter: boolean;
     };
   };
-} 
+}
