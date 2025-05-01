@@ -107,7 +107,7 @@ export class OrdersController {
             }
         }
     })
-    getOrderStats(@Query() query: { startDate?: Date; endDate?: Date }) {
+    getOrderStats(@Query() query: { startDate?: Date; endDate?: Date; timeframe?: 'daily' | 'weekly' | 'monthly' | 'yearly' }) {
         return this.ordersService.getOrderStats(query);
     }
 

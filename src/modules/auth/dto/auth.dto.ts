@@ -60,6 +60,36 @@ export class ForgotPasswordDto {
   email: string;
 }
 
+export class ForgotPasswordByAdminDto {
+  @ApiProperty({
+    description: 'Mật khẩu hiện tại',
+    example: 'password123',
+  })
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @ApiProperty({
+    description: 'Mật khẩu mới (tối thiểu 6 ký tự)',
+    example: 'newpassword123',
+    minLength: 6,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  newPassword: string;
+
+  @ApiProperty({
+    description: 'Mật khẩu mới (tối thiểu 6 ký tự)',
+    example: 'newpassword123',
+    minLength: 6,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  confirmPassword: string;
+}
+
 export class ResetPasswordDto {
   @ApiProperty({
     description: 'Token khôi phục mật khẩu',

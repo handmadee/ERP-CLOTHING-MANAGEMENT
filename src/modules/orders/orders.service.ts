@@ -526,25 +526,19 @@ export class OrdersService {
         timeframe?: 'daily' | 'weekly' | 'monthly' | 'yearly';
     } = {}): Promise<any> {
         const { startDate, endDate, timeframe = 'monthly' } = query;
-
-        // Determine date range
         const today = new Date();
         const dateFilter: any = {};
-
         if (startDate || endDate) {
             dateFilter.orderDate = {};
             if (startDate) dateFilter.orderDate.$gte = new Date(startDate);
             if (endDate) dateFilter.orderDate.$lte = new Date(endDate);
         } else {
-            // Default to current month if no dates provided
-            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            const dateRange = this.getDateRangeByTimeframe(timeframe, today);
             dateFilter.orderDate = {
-                $gte: firstDayOfMonth,
-                $lte: lastDayOfMonth
+                $gte: dateRange.startDate,
+                $lte: dateRange.endDate
             };
         }
-
         const [
             orderMetrics,
             revenueMetrics,
@@ -554,7 +548,6 @@ export class OrdersService {
             topCustomers,
             topCostumes
         ] = await Promise.all([
-            // Basic Order Metrics
             this.orderModel.aggregate([
                 { $match: dateFilter },
                 {
@@ -717,7 +710,8 @@ export class OrdersService {
                 cancelledOrders: statusCounts.cancelled,
                 monthlyRevenue: statusCounts.totalRevenue,
                 avgOrderValue: metrics.avgOrderValue,
-                depositCollectionRate: (metrics.totalDeposits / statusCounts.totalRevenue * 100).toFixed(2)
+                depositCollectionRate: metrics.totalOrders ? (metrics.totalDeposits / statusCounts.totalRevenue * 100).toFixed(2) : '0',
+                timeframe: timeframe
             },
             performance: {
                 orderCompletion: {
@@ -785,5 +779,48 @@ export class OrdersService {
             revenue: trend.revenue,
             avgOrderValue: trend.avgOrderValue
         }));
+    }
+
+    /**
+     * Trả về khoảng thời gian dựa trên timeframe
+     */
+    private getDateRangeByTimeframe(timeframe: 'daily' | 'weekly' | 'monthly' | 'yearly', referenceDate: Date): { startDate: Date, endDate: Date } {
+        const today = new Date(referenceDate);
+        let startDate: Date;
+        let endDate: Date = new Date(today);
+
+        switch (timeframe) {
+            case 'daily':
+                startDate = new Date(today.setHours(0, 0, 0, 0));
+                endDate = new Date(today);
+                endDate.setHours(23, 59, 59, 999);
+                break;
+
+            case 'weekly':
+                // Lấy ngày đầu tuần (Thứ 2)
+                const dayOfWeek = today.getDay(); // 0 = CN, 1 = T2, ..., 6 = T7
+                const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                startDate = new Date(today.setDate(diff));
+                startDate.setHours(0, 0, 0, 0);
+
+                endDate = new Date(startDate);
+                endDate.setDate(startDate.getDate() + 6);
+                endDate.setHours(23, 59, 59, 999);
+                break;
+
+            case 'yearly':
+                startDate = new Date(today.getFullYear(), 0, 1); // Ngày 1/1 năm hiện tại
+                endDate = new Date(today.getFullYear(), 11, 31, 23, 59, 59, 999); // Ngày 31/12 năm hiện tại
+                break;
+
+            case 'monthly':
+            default:
+                // Mặc định là monthly
+                startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+                break;
+        }
+
+        return { startDate, endDate };
     }
 } 

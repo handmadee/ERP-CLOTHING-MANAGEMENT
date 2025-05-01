@@ -16,6 +16,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   RefreshTokenDto,
+  ForgotPasswordByAdminDto,
 } from './dto/auth.dto';
 import { Request } from 'express';
 import {
@@ -164,6 +165,19 @@ export class AuthController {
   adminOnly() {
     return { message: 'You have admin access' };
   }
+
+
+  @Post('forgot-password-by-admin')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Khôi phục mật khẩu cho tài khoản admin' })
+  @ApiBody({ type: ForgotPasswordByAdminDto })
+  async forgotPasswordByAdmin(
+    @Req() req: RequestWithUser
+    , @Body() forgotPasswordDto: ForgotPasswordByAdminDto) {
+    return this.authService.ForgotPasswordByAdmin(req.user.userId, forgotPasswordDto);
+  }
+
 
   @Post('debug/decode-token')
   @Public()

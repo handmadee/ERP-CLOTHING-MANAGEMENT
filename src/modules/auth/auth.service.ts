@@ -16,12 +16,14 @@ import {
   RegisterDto,
   ForgotPasswordDto,
   ResetPasswordDto,
+  ForgotPasswordByAdminDto,
 } from './dto/auth.dto';
 import { Role } from '../../common/enums/role.enum';
 import { SettingsService } from '../settings/settings.service';
 import { Logger } from '@nestjs/common';
 import { ApiResponse } from 'src/common/dto/api-response.dto';
 import { MESSAGES } from '../../common/constants/index';
+
 
 
 export interface JwtPayload {
@@ -224,6 +226,40 @@ export class AuthService {
       throw new InternalServerErrorException(
         'Error during forgot password process',
       );
+    } finally {
+      session.endSession();
+    }
+  }
+
+  async ForgotPasswordByAdmin(
+    userId: string,
+    forgotPasswordDto: ForgotPasswordByAdminDto,
+  ) {
+    console.log("🚀 ~ AuthService ~ forgotPasswordDto:", forgotPasswordDto)
+    const session = await this.connection.startSession();
+    try {
+      session.startTransaction();
+      const account = await this.accountModel.findOne({ _id: userId, isActive: true }).session(session);
+      if (!account) {
+        throw new BadRequestException('Tài khoản không tồn tại');
+      }
+      const isPasswordCorrect = await bcrypt.compare(forgotPasswordDto.currentPassword, account.password);
+      if (!isPasswordCorrect) {
+        throw new BadRequestException('Mật khẩu hiện tại không chính xác');
+      }
+      if (forgotPasswordDto.newPassword !== forgotPasswordDto.confirmPassword) {
+        throw new BadRequestException('Mật khẩu mới và xác nhận mật khẩu không khớp');
+      }
+      const hashedPassword = await bcrypt.hash(forgotPasswordDto.newPassword, 10);
+      await this.accountModel.updateOne({ _id: userId }, { password: hashedPassword }).session(session);
+      await session.commitTransaction();
+      return { message: 'Mật khẩu đã được đặt lại thành công' };
+    } catch (error) {
+      await session.abortTransaction();
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Error during password reset');
     } finally {
       session.endSession();
     }
