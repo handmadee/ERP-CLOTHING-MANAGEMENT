@@ -34,7 +34,7 @@ async function bootstrap() {
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.json(),
-          winston.format.prettyPrint()
+          winston.format.prettyPrint(),
         ),
         maxFiles: 14, // Giữ log 14 ngày
       }),
@@ -43,7 +43,7 @@ async function bootstrap() {
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.json(),
-          winston.format.prettyPrint()
+          winston.format.prettyPrint(),
         ),
         maxFiles: 7,
       }),
@@ -57,27 +57,31 @@ async function bootstrap() {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
       exposedHeaders: ['Content-Disposition'],
-    }
+    },
   });
 
   // Security middlewares với cấu hình chi tiết
-  app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: [`'self'`],
-        styleSrc: [`'self'`, `'unsafe-inline'`],
-        imgSrc: [`'self'`, 'data:', 'https:'],
-        scriptSrc: [`'self'`],
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: [`'self'`],
+          styleSrc: [`'self'`, `'unsafe-inline'`],
+          imgSrc: [`'self'`, 'data:', 'https:'],
+          scriptSrc: [`'self'`],
+        },
       },
-    }
-  }));
+    }),
+  );
 
   // Compression với cấu hình tối ưu
-  app.use(compression({
-    level: 6, // level từ 1-9, càng cao càng nén nhiều nhưng tốn CPU
-    threshold: 100 * 1024, // Chỉ nén các response > 100kb
-  }));
+  app.use(
+    compression({
+      level: 6, // level từ 1-9, càng cao càng nén nhiều nhưng tốn CPU
+      threshold: 100 * 1024, // Chỉ nén các response > 100kb
+    }),
+  );
 
   app.use(cookieParser());
 
@@ -121,8 +125,15 @@ async function bootstrap() {
     .addTag('Users', 'User management endpoints')
     .addTag('Costumes', 'Costume management endpoints')
     .addTag('Orders', 'Order management endpoints')
-    .addServer(process.env.API_URL || 'http://localhost:3001', 'Local Development')
-    .setContact('Support Team', 'https://yourwebsite.com', 'support@yourwebsite.com')
+    .addServer(
+      process.env.API_URL || 'http://localhost:3001',
+      'Local Development',
+    )
+    .setContact(
+      'Support Team',
+      'https://yourwebsite.com',
+      'support@yourwebsite.com',
+    )
     .setLicense('MIT', 'https://opensource.org/licenses/MIT')
     .build();
 
@@ -138,7 +149,8 @@ async function bootstrap() {
 
   // Khởi động server
   const port = process.env.PORT || 3000;
-  await app.listen(process.env.PORT || 3000, '0.0.0.0');
+  await app.listen(port, '0.0.0.0');
+  console.log(`✅ Server is running on port ${port}`);
 
   // Logging startup information
   Logger.log(`🚀 Environment: ${process.env.NODE_ENV}`);
@@ -147,7 +159,7 @@ async function bootstrap() {
   Logger.log(`🔐 API Version: 1.0.0`);
 }
 
-bootstrap().catch(err => {
+bootstrap().catch((err) => {
   Logger.error(`❌ Error starting server:`, err);
   process.exit(1);
 });
